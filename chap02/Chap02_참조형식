@@ -1,0 +1,13 @@
+#Chap02_딕셔너리.py
+#참조를 복사해서 전달한다.
+phone = {"kim":"010-111-2222", "lee":"010-123-1234",
+    "park":"010-222-3333"}
+print( phone )
+print("포함 여부 체크:", "park" in phone)
+print("포함되어 있지 않은 경우 체크:" "moon" not in phone)
+
+p = phone
+print( id(phone), id(p) )
+p["moon"] = "010-1234-5678"
+print( phone )
+print( p )
