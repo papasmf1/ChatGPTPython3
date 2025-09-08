@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physics Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #simulation-container {
+            border: 1px solid #ccc;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="simulation-container"></canvas>
+    <script>
+        const canvas = document.getElementById('simulation-container');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = 800;
+        canvas.height = 600;
+
+        class Vector {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+
+            add(v) {
+                return new Vector(this.x + v.x, this.y + v.y);
+            }
+
+            sub(v) {
+                return new Vector(this.x - v.x, this.y - v.y);
+            }
+
+            mul(s) {
+                return new Vector(this.x * s, this.y * s);
+            }
+
+            get mag() {
+                return Math.sqrt(this.x ** 2 + this.y ** 2);
+            }
+
+            get unit() {
+                const mag = this.mag;
+                if (mag === 0) return new Vector(0, 0);
+                return new Vector(this.x / mag, this.y / mag);
+            }
+        }
+
+        class Particle {
+            constructor(x, y) {
+                this.pos = new Vector(x, y);
+                this.oldpos = new Vector(x, y);
+                this.acc = new Vector(0, 0);
+                this.locked = false;
+            }
+
+            update(dt) {
+                if (this.locked) return;
+                const vel = this.pos.sub(this.oldpos);
+                this.oldpos = this.pos;
+                this.pos = this.pos.add(vel).add(this.acc.mul(dt * dt));
+                this.acc = new Vector(0, 0);
+            }
+
+            applyForce(force) {
+                this.acc = this.acc.add(force);
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.pos.x, this.pos.y, 5, 0, 2 * Math.PI);
+                ctx.fillStyle = this.locked ? '#f00' : '#000';
+                ctx.fill();
+            }
+        }
+
+        class Constraint {
+            constructor(p1, p2, length) {
+                this.p1 = p1;
+                this.p2 = p2;
+                this.length = length;
+            }
+
+            update() {
+                const axis = this.p1.pos.sub(this.p2.pos);
+                const dist = axis.mag;
+                const diff = this.length - dist;
+                const percent = diff / dist / 2;
+                const offset = axis.mul(percent);
+
+                if (!this.p1.locked) {
+                    this.p1.pos = this.p1.pos.add(offset);
+                }
+                if (!this.p2.locked) {
+                    this.p2.pos = this.p2.pos.sub(offset);
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.moveTo(this.p1.pos.x, this.p1.pos.y);
+                ctx.lineTo(this.p2.pos.x, this.p2.pos.y);
+                ctx.strokeStyle = '#000';
+                ctx.stroke();
+            }
+        }
+
+        const particles = [];
+        const constraints = [];
+        const gravity = new Vector(0, 981);
+        const substeps = 3;
+
+        // Create a rope
+        for (let i = 0; i < 20; i++) {
+            particles.push(new Particle(400 + i * 10, 100));
+            if (i > 0) {
+                constraints.push(new Constraint(particles[i], particles[i - 1], 10));
+            }
+        }
+        particles[0].locked = true;
+
+        // Create a cloth
+        const cloth_width = 20;
+        const cloth_height = 15;
+        const spacing = 15;
+        for (let y = 0; y < cloth_height; y++) {
+            for (let x = 0; x < cloth_width; x++) {
+                const p = new Particle(100 + x * spacing, 100 + y * spacing);
+                if (x > 0) {
+                    constraints.push(new Constraint(p, particles[particles.length - 1], spacing));
+                }
+                if (y > 0) {
+                    constraints.push(new Constraint(p, particles[particles.length - cloth_width], spacing));
+                }
+                particles.push(p);
+            }
+        }
+        for (let i = 0; i < cloth_width; i++) {
+            if (i % 4 === 0) {
+                particles[particles.length - cloth_width * cloth_height + i].locked = true;
+            }
+        }
+
+        let mouse = {
+            pos: new Vector(0, 0),
+            down: false,
+            grabbed: null
+        };
+
+        canvas.addEventListener('mousedown', e => {
+            mouse.down = true;
+            const rect = canvas.getBoundingClientRect();
+            mouse.pos = new Vector(e.clientX - rect.left, e.clientY - rect.top);
+
+            let closest = null;
+            let min_dist = Infinity;
+            for (const p of particles) {
+                const dist = p.pos.sub(mouse.pos).mag;
+                if (dist < 10 && dist < min_dist) {
+                    min_dist = dist;
+                    closest = p;
+                }
+            }
+            if (closest) {
+                mouse.grabbed = closest;
+                mouse.grabbed.oldpos = mouse.grabbed.pos;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            mouse.down = false;
+            if (mouse.grabbed) {
+                mouse.grabbed = null;
+            }
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.pos = new Vector(e.clientX - rect.left, e.clientY - rect.top);
+        });
+
+        function update(dt) {
+            if (mouse.grabbed) {
+                mouse.grabbed.pos = mouse.pos;
+            }
+
+            for (const p of particles) {
+                p.applyForce(gravity);
+            }
+
+            for (let i = 0; i < substeps; i++) {
+                for (const p of particles) {
+                    p.update(dt / substeps);
+                }
+                for (const c of constraints) {
+                    c.update();
+                }
+                // Boundary constraints
+                for (const p of particles) {
+                    if (p.pos.x < 0) p.pos.x = 0;
+                    if (p.pos.x > canvas.width) p.pos.x = canvas.width;
+                    if (p.pos.y < 0) p.pos.y = 0;
+                    if (p.pos.y > canvas.height) p.pos.y = canvas.height;
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (const c of constraints) {
+                c.draw();
+            }
+            for (const p of particles) {
+                p.draw();
+            }
+        }
+
+        let last_time = 0;
+        function animate(time = 0) {
+            const dt = (time - last_time) / 1000;
+            last_time = time;
+
+            update(dt);
+            draw();
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
